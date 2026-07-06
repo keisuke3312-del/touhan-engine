@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>登録販売者 過去問エンジン v0.2</title>
+<title>登録販売者 過去問エンジン v0.3</title>
 <style>
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.7;margin:16px;}
 button{font-size:16px;padding:10px 12px;margin:4px;}
@@ -18,8 +18,8 @@ textarea{height:220px;font-family:ui-monospace,Menlo,monospace;font-size:12px;}
 <link rel="manifest" href="./manifest.webmanifest">
 </head>
 <body>
-<h1>登録販売者 過去問エンジン v0.2</h1>
-<p class="small">過去問中心・4セット生成・採点・累計保存・苦手補正の初期版。</p>
+<h1>登録販売者 過去問エンジン v0.3</h1>
+<p class="small">過去問中心・4セット生成・採点・累計保存・復習・検索・バックアップ対応。</p>
 
 <div class="card">
 <label>日付</label>
@@ -483,5 +483,130 @@ function downloadText(filename, text){
 generateAll();
 renderStats();
 </script>
+
+<script>
+(function(){
+  const VERSION = "v0.3";
+
+  function ensurePanel(){
+    if(document.getElementById("v03-panel")) return;
+    const panel = document.createElement("div");
+    panel.id = "v03-panel";
+    panel.className = "card";
+    panel.innerHTML = `
+      <h2>v0.3 追加機能</h2>
+      <button onclick="v03ShowAnswers()">解答・解説を表示</button>
+      <button onclick="v03HideAnswers()">解答・解説を隠す</button>
+      <button onclick="v03ShowWrongReview()">間違えた問題だけ復習</button>
+      <button onclick="v03ExportBackup()">学習履歴バックアップJSON保存</button>
+      <button onclick="v03ImportBackupPrompt()">学習履歴バックアップJSON貼り付け復元</button>
+      <label>検索</label>
+      <input id="v03-search" placeholder="例：アセトアミノフェン / 甘草 / 第3章 / 副作用">
+      <button onclick="v03Search()">検索</button>
+      <div id="v03-result"></div>
+    `;
+    const stats = document.getElementById("stats");
+    if(stats && stats.parentElement) stats.parentElement.after(panel);
+    else document.body.appendChild(panel);
+  }
+
+  window.v03ShowAnswers = function(){
+    const qs = (window.currentProblem && window.currentProblem.sets && window.currentProblem.sets[0].questions) || [];
+    const box = document.getElementById("questions");
+    if(!box || !qs.length) return alert("先に問題を生成してください。");
+    box.innerHTML = qs.map(q =>
+      `<div class="q"><b>${q.no}.【${q.chapter}】</b>${q.text}（○ / ×）
+       <div style="margin-top:6px;"><b>正答：${q.answer}</b><br>${q.explanation}</div></div>`
+    ).join("");
+  };
+
+  window.v03HideAnswers = function(){
+    if(typeof renderQuestions === "function" && window.currentProblem) renderQuestions();
+  };
+
+  window.v03GetHistory = function(){
+    try { return JSON.parse(localStorage.getItem("touhan.v02.grade.history") || "[]"); }
+    catch { return []; }
+  };
+
+  window.v03ShowWrongReview = function(){
+    const history = v03GetHistory();
+    const wrong = history.flatMap(g => (g.wrong_questions || []).map(w => ({...w, session:g.session, date:g.date})));
+    const out = document.getElementById("v03-result");
+    if(!out) return;
+    if(!wrong.length){
+      out.innerHTML = `<p class="ok">現在、復習対象の誤答はありません。</p>`;
+      return;
+    }
+    const recent = wrong.slice(-30).reverse();
+    out.innerHTML = `<h3>復習対象（直近最大30件）</h3>` + recent.map(w =>
+      `<div class="q"><b>${w.date || ""} ${w.session || ""} / ${w.no}問【${w.chapter}】</b><br>
+       正答：${w.correct_answer} / あなた：${w.user_answer}<br>
+       ${w.summary || ""}</div>`
+    ).join("");
+  };
+
+  window.v03Search = function(){
+    const q = (document.getElementById("v03-search").value || "").trim().toLowerCase();
+    const out = document.getElementById("v03-result");
+    if(!q) return alert("検索語を入力してください。");
+    const source = (typeof QUESTIONS_DB !== "undefined" ? QUESTIONS_DB : []);
+    const results = source.filter(x => {
+      const s = [
+        x.question_text, x.explanation, x.knowledge_key, x.chapter, x.category, x.sub_category,
+        ...(x.tags || [])
+      ].join(" ").toLowerCase();
+      return s.includes(q);
+    }).slice(0,50);
+    if(!results.length){
+      out.innerHTML = `<p>該当なし：${q}</p>`;
+      return;
+    }
+    out.innerHTML = `<h3>検索結果：${results.length}件（最大50件表示）</h3>` + results.map((x,i)=>
+      `<div class="q"><b>${i+1}.【${x.chapter}】${x.knowledge_key || ""}</b><br>
+       ${x.question_text}<br><b>正答：${x.answer}</b><br>${x.explanation}</div>`
+    ).join("");
+  };
+
+  window.v03ExportBackup = function(){
+    const data = {
+      version: VERSION,
+      exported_at: new Date().toISOString(),
+      grade_history: v03GetHistory(),
+      generated_history: JSON.parse(localStorage.getItem("touhan.v02.generated.history") || "[]")
+    };
+    const blob = new Blob([JSON.stringify(data,null,2)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "touhan-study-backup.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  window.v03ImportBackupPrompt = function(){
+    const text = prompt("バックアップJSONを貼り付けてください");
+    if(!text) return;
+    try{
+      const data = JSON.parse(text);
+      if(Array.isArray(data.grade_history)){
+        localStorage.setItem("touhan.v02.grade.history", JSON.stringify(data.grade_history));
+      }
+      if(Array.isArray(data.generated_history)){
+        localStorage.setItem("touhan.v02.generated.history", JSON.stringify(data.generated_history));
+      }
+      alert("復元しました。");
+      if(typeof renderStats === "function") renderStats();
+    }catch(e){
+      alert("JSONの読み込みに失敗しました。");
+    }
+  };
+
+  // Patch title/version texts
+  window.addEventListener("DOMContentLoaded", ensurePanel);
+  setTimeout(ensurePanel, 300);
+})();
+</script>
+
 </body>
 </html>
