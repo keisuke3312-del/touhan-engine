@@ -1,16 +1,13 @@
-# 登録販売者 過去問中心問題生成エンジン v0.3.3
+# 登録販売者 過去問中心問題生成エンジン v0.3.4
 
-## 緊急安定版
-- v0.3.1 / v0.3.2 の後付けパッチ方式を廃止
-- v0.2安定版をベースに再構築
-- 無限ループ原因の renderCurrentProblem 上書きなし
-- 問題JSONコピー/保存時に内部フィールドを除外
-- GitHub Pages無料運用対応
+## 修正
+- iPhone/PWAでコピー範囲が途中で切れる問題に対応
+- textarea.select() / execCommand 依存を廃止
+- Clipboard APIでJSON全文を直接コピー
+- コピー成功時に文字数を表示
+- アプリ取り込み用JSONから内部フィールドを除外
 
-## 更新後の注意
-iPhoneのホーム画面アプリに旧版が残る場合があります。
-その場合はSafariで以下を開いてください。
+## 注意
+更新後は以下URLでキャッシュ回避してください。
 
-https://keisuke3312-del.github.io/touhan-engine/?v=0.3.3
-
-表示確認後、必要ならホーム画面アイコンを作り直してください。
+https://keisuke3312-del.github.io/touhan-engine/?v=0.3.4

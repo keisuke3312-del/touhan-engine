@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>登録販売者 過去問エンジン v0.3.3</title>
+<title>登録販売者 過去問エンジン v0.3.4</title>
 <style>
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.7;margin:16px;}
 button{font-size:16px;padding:10px 12px;margin:4px;}
@@ -17,8 +17,8 @@ textarea{height:220px;font-family:ui-monospace,Menlo,monospace;font-size:12px;}
 </style>
 </head>
 <body>
-<h1>登録販売者 過去問エンジン v0.3.3</h1>
-<p class="small">過去問中心・4セット生成・採点・累計保存・JSONコピー安定版。</p>
+<h1>登録販売者 過去問エンジン v0.3.4</h1>
+<p class="small">過去問中心・4セット生成・採点・累計保存・JSON全文コピー修正版。</p>
 
 <div class="card">
 <label>日付</label>
@@ -515,30 +515,21 @@ renderStats();
     throw new Error("先に問題を生成してください。");
   }
 
-  function setProblemTextarea(json){
+  function setProblemTextareaText(text){
     const area = document.getElementById("problemJson");
-    if (area) area.value = JSON.stringify(json, null, 2);
-  }
-
-  async function safeCopy(text, textareaId){
-    const area = document.getElementById(textareaId);
     if (area) {
       area.value = text;
-      area.focus();
-      area.select();
-      try { area.setSelectionRange(0, area.value.length); } catch(e) {}
+      area.removeAttribute("disabled");
+      area.removeAttribute("readonly");
     }
+  }
 
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch(e) {
-      try {
-        return document.execCommand("copy");
-      } catch(e2) {
-        return false;
-      }
+  async function copyFullTextToClipboard(text){
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      throw new Error("この環境では自動コピーが使えません。JSON欄から手動コピーしてください。");
     }
+    await navigator.clipboard.writeText(text);
+    return true;
   }
 
   function downloadJson(filename, obj){
@@ -558,19 +549,22 @@ renderStats();
     try {
       const json = getVisibleProblemJson();
       const text = JSON.stringify(json, null, 2);
-      setProblemTextarea(json);
-      const ok = await safeCopy(text, "problemJson");
-      alert(ok ? "問題JSONをコピーしました。" : "コピーできませんでした。JSON欄を手動でコピーしてください。");
+      setProblemTextareaText(text);
+
+      await copyFullTextToClipboard(text);
+
+      alert("問題JSONを全文コピーしました。文字数：" + text.length);
     } catch(e) {
-      alert(e.message || e);
+      alert((e.message || e) + "\n\nJSON欄には全文を表示しています。そこから手動コピーしてください。");
     }
   };
 
   window.downloadProblemJson = function(){
     try {
       const json = getVisibleProblemJson();
+      const text = JSON.stringify(json, null, 2);
+      setProblemTextareaText(text);
       const filename = (json.sets && json.sets[0] && json.sets[0].id ? json.sets[0].id : "problem") + ".json";
-      setProblemTextarea(json);
       downloadJson(filename, json);
     } catch(e) {
       alert(e.message || e);
@@ -587,10 +581,9 @@ renderStats();
     }
   };
 
-  // Show correct version without touching app logic.
   window.addEventListener("load", function(){
     const h1 = document.querySelector("h1");
-    if (h1) h1.textContent = "登録販売者 過去問エンジン v0.3.3";
+    if (h1) h1.textContent = "登録販売者 過去問エンジン v0.3.4";
   });
 })();
 </script>
