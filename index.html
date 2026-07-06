@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>登録販売者 過去問エンジン v0.3.1</title>
+<title>登録販売者 過去問エンジン v0.3.2</title>
 <style>
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.7;margin:16px;}
 button{font-size:16px;padding:10px 12px;margin:4px;}
@@ -18,8 +18,8 @@ textarea{height:220px;font-family:ui-monospace,Menlo,monospace;font-size:12px;}
 <link rel="manifest" href="./manifest.webmanifest">
 </head>
 <body>
-<h1>登録販売者 過去問エンジン v0.3.1</h1>
-<p class="small">過去問中心・4セット生成・採点・累計保存・復習・検索・バックアップ対応。JSONコピー安定化版。</p>
+<h1>登録販売者 過去問エンジン v0.3.2</h1>
+<p class="small">過去問中心・4セット生成・採点・累計保存・復習・検索・バックアップ対応。</p>
 
 <div class="card">
 <label>日付</label>
@@ -486,7 +486,7 @@ renderStats();
 
 <script>
 (function(){
-  const VERSION = "v0.3.1";
+  const VERSION = "v0.3.2";
 
   function ensurePanel(){
     if(document.getElementById("v03-panel")) return;
@@ -494,7 +494,7 @@ renderStats();
     panel.id = "v03-panel";
     panel.className = "card";
     panel.innerHTML = `
-      <h2>v0.3.1 追加機能</h2>
+      <h2>v0.3.2 追加機能</h2>
       <button onclick="v03ShowAnswers()">解答・解説を表示</button>
       <button onclick="v03HideAnswers()">解答・解説を隠す</button>
       <button onclick="v03ShowWrongReview()">間違えた問題だけ復習</button>
@@ -610,12 +610,16 @@ renderStats();
 
 
 <script>
+/* v0.3.2 safe patch
+   - renderCurrentProblem は上書きしない
+   - 生成関数の再帰呼び出しをしない
+   - JSONコピー時だけ textarea の中身を整える
+*/
 (function(){
-  const PATCH_VERSION = "v0.3.1.1";
-
-  function stripInternalFields(problemJson){
+  function cleanProblemJson(problemJson){
     const cloned = JSON.parse(JSON.stringify(problemJson));
     if (!Array.isArray(cloned.sets)) return cloned;
+
     cloned.sets.forEach(set => {
       if (!Array.isArray(set.questions)) return;
       set.questions = set.questions.map(q => ({
@@ -627,31 +631,61 @@ renderStats();
         explanation: q.explanation
       }));
     });
+
     return cloned;
   }
 
-  function ensureCurrentProblem(){
-    if (window.currentProblem && window.currentProblem.sets && window.currentProblem.sets[0]) return window.currentProblem;
-    if (typeof generateOne === "function") {
-      generateOne();
-      if (window.currentProblem && window.currentProblem.sets && window.currentProblem.sets[0]) return window.currentProblem;
-    }
-    if (typeof generateAll === "function") {
-      generateAll();
-      if (window.currentProblem && window.currentProblem.sets && window.currentProblem.sets[0]) return window.currentProblem;
-    }
-    throw new Error("問題JSONの生成に失敗しました。ページを再読み込みしてください。");
-  }
-
-  function writeProblemTextarea(){
-    const p = ensureCurrentProblem();
-    const clean = stripInternalFields(p);
+  function getProblemFromTextarea(){
     const area = document.getElementById("problemJson");
-    if (area) area.value = JSON.stringify(clean, null, 2);
-    return clean;
+    if (!area || !area.value.trim()) return null;
+    try {
+      return JSON.parse(area.value);
+    } catch(e) {
+      return null;
+    }
   }
 
-  function downloadTextV031(filename, text){
+  function getCurrentCleanProblem(){
+    let source = null;
+
+    if (window.currentProblem && window.currentProblem.sets && window.currentProblem.sets.length) {
+      source = window.currentProblem;
+    } else {
+      source = getProblemFromTextarea();
+    }
+
+    if (!source) {
+      throw new Error("先に問題を生成してください。");
+    }
+
+    return cleanProblemJson(source);
+  }
+
+  async function copyText(text, textareaId){
+    const area = document.getElementById(textareaId);
+
+    if (area) {
+      area.value = text;
+      area.focus();
+      area.select();
+      area.setSelectionRange(0, area.value.length);
+    }
+
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch(e) {}
+
+    try {
+      return document.execCommand("copy");
+    } catch(e) {
+      return false;
+    }
+  }
+
+  function downloadText(filename, text){
     const blob = new Blob([text], {type:"application/json"});
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -663,72 +697,46 @@ renderStats();
     URL.revokeObjectURL(url);
   }
 
-  async function copyTextRobust(text, textareaId){
-    const area = document.getElementById(textareaId);
-    if (area) {
-      area.value = text;
-      area.focus();
-      area.select();
-    }
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(text);
-        return true;
-      }
-    } catch(e) {}
-    try {
-      document.execCommand("copy");
-      return true;
-    } catch(e) {
-      return false;
-    }
-  }
-
   window.copyProblemJson = async function(){
-    try{
-      const clean = writeProblemTextarea();
+    try {
+      const clean = getCurrentCleanProblem();
       const text = JSON.stringify(clean, null, 2);
-      const ok = await copyTextRobust(text, "problemJson");
-      if (ok) alert("問題JSONをコピーしました。");
-      else alert("自動コピーに失敗しました。問題JSON欄を長押し/全選択して手動コピーしてください。");
-    }catch(e){
+
+      const area = document.getElementById("problemJson");
+      if (area) area.value = text;
+
+      const ok = await copyText(text, "problemJson");
+      alert(ok ? "問題JSONをコピーしました。" : "自動コピーに失敗しました。JSON欄を手動でコピーしてください。");
+    } catch(e) {
       alert(e.message || e);
     }
   };
 
   window.downloadProblemJson = function(){
-    try{
-      const clean = writeProblemTextarea();
-      const setId = clean.sets[0].id;
-      downloadTextV031(`${setId}.json`, JSON.stringify(clean, null, 2));
-    }catch(e){
+    try {
+      const clean = getCurrentCleanProblem();
+      const setId = clean.sets && clean.sets[0] ? clean.sets[0].id : "problem";
+      downloadText(setId + ".json", JSON.stringify(clean, null, 2));
+    } catch(e) {
       alert(e.message || e);
     }
   };
 
   window.downloadAllSets = function(){
-    try{
-      if (!window.currentAll && typeof generateAll === "function") generateAll();
-      if (!window.currentAll) throw new Error("先に4セット生成してください。");
-      const clean = stripInternalFields(window.currentAll);
-      downloadTextV031(`${clean.id}_all_sets.json`, JSON.stringify(clean, null, 2));
-    }catch(e){
+    try {
+      if (!window.currentAll) {
+        throw new Error("先に4セット生成してください。");
+      }
+      const clean = cleanProblemJson(window.currentAll);
+      downloadText(clean.id + "_all_sets.json", JSON.stringify(clean, null, 2));
+    } catch(e) {
       alert(e.message || e);
     }
   };
 
-  const oldRenderCurrentProblem = window.renderCurrentProblem;
-  window.renderCurrentProblem = function(){
-    if (typeof oldRenderCurrentProblem === "function") oldRenderCurrentProblem();
-    try { writeProblemTextarea(); } catch(e) {}
-  };
-
   window.addEventListener("load", function(){
-    try { writeProblemTextarea(); } catch(e) {}
     const h1 = document.querySelector("h1");
-    if (h1 && !h1.textContent.includes("v0.3.1.1")) {
-      h1.textContent = h1.textContent.replace(/v0\.\d+(\.\d+)?/g, "v0.3.1.1");
-    }
+    if (h1) h1.textContent = h1.textContent.replace(/v0\.\d+(\.\d+)?/g, "v0.3.2");
   });
 })();
 </script>
