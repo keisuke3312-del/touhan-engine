@@ -506,89 +506,54 @@ renderStats();
 
   window.addEventListener("load", function(){
     const h1 = document.querySelector("h1");
-    if (h1) h1.textContent = "登録販売者 過去問エンジン v0.4.0";
+    if (h1) h1.textContent = "登録販売者 過去問エンジン v0.4.2";
   });
 })();
 (function(){
-  const normalize = value => String(value ?? '').replace(/\s+/g,' ').trim();
+  const normalize=value=>String(value??'').replace(/\s+/g,' ').trim();
+  const jp=/[一-龯ぁ-んァ-ヶ]/g;
+  function ocrQualityReasons(q,choices){
+    const reasons=[]; const text=String(q.question_text??''); const joined=[text,...choices].join(' ');
+    const jpCount=(text.match(jp)||[]).length;
+    const spaced=(text.match(/[一-龯ぁ-んァ-ヶ]\s+[一-龯ぁ-んァ-ヶ]/g)||[]).length;
+    if(jpCount>0&&spaced/jpCount>0.28) reasons.push('文字間空白が多い');
+    if(/(?:\b(?:IE|E|R|B|N|REKE|BREEAD|BREEED)\b|[#®&]|[A-Z]{4,})/.test(joined)) reasons.push('OCRノイズ記号');
+    if(joined.includes('�')) reasons.push('文字化け');
+    const combo=choices.filter(x=>/^[（(]?[a-dａ-ｄ][,、，]\s*[a-dａ-ｄ][)）]?$/i.test(x)).length;
+    const hasStatements=/(?:^|\n)\s*[a-dａ-ｄ][\s　]+/im.test(text);
+    if(combo>=4&&!hasStatements) reasons.push('組合せ対象の記述欠落');
+    if(choices.some(x=>x.length>25&&/[にのをがでとやし]$/.test(x))) reasons.push('選択肢末尾欠落');
+    return reasons;
+  }
   function validateQuestion(q){
-    const reasons=[];
-    const choices=Array.isArray(q.choices)?q.choices.map(normalize):[];
+    const reasons=[]; const choices=Array.isArray(q.choices)?q.choices.map(normalize):[];
     if(!q.question_id) reasons.push('question_idなし');
-    if(!normalize(q.question_text) || normalize(q.question_text).length<20) reasons.push('問題文不足');
+    if(!normalize(q.question_text)||normalize(q.question_text).length<20) reasons.push('問題文不足');
     if(!/^第[1-5]章$/.test(normalize(q.chapter))) reasons.push('章が不正');
     if(choices.length!==5) reasons.push(`選択肢${choices.length}件`);
     if(choices.some(x=>x.length<4)) reasons.push('短すぎる選択肢');
     if(new Set(choices.map(x=>x.replace(/[\s,、()（）]/g,''))).size!==choices.length) reasons.push('選択肢重複');
     if(!['1','2','3','4','5'].includes(String(q.answer))) reasons.push('正答不正');
     if(!q.year) reasons.push('年度なし');
+    reasons.push(...ocrQualityReasons(q,choices));
     return {ok:reasons.length===0,reasons,choices};
   }
   function validateDatabase(db){
-    const list=Array.isArray(db)?db:(Array.isArray(db?.questions)?db.questions:[]);
-    const seen=new Set(), valid=[], invalid=[], duplicateIds=[];
-    const chapterCounts={}, yearCounts={};
-    for(const q of list){
-      if(seen.has(q.question_id)){duplicateIds.push(q.question_id);invalid.push({id:q.question_id,reasons:['ID重複']});continue;}
-      seen.add(q.question_id);
-      const r=validateQuestion(q);
-      if(r.ok){
-        valid.push({...q,choices:r.choices});
-        chapterCounts[q.chapter]=(chapterCounts[q.chapter]||0)+1;
-        yearCounts[q.year]=(yearCounts[q.year]||0)+1;
-      }else invalid.push({id:q.question_id||'(なし)',year:q.year,no:q.question_no,reasons:r.reasons});
-    }
+    const list=Array.isArray(db)?db:(Array.isArray(db?.questions)?db.questions:[]); const seen=new Set(),valid=[],invalid=[],duplicateIds=[]; const chapterCounts={},yearCounts={};
+    for(const q of list){if(seen.has(q.question_id)){duplicateIds.push(q.question_id);invalid.push({id:q.question_id,reasons:['ID重複']});continue;}seen.add(q.question_id);const r=validateQuestion(q);if(r.ok){valid.push({...q,choices:r.choices});chapterCounts[q.chapter]=(chapterCounts[q.chapter]||0)+1;yearCounts[q.year]=(yearCounts[q.year]||0)+1;}else invalid.push({id:q.question_id||'(なし)',year:q.year,no:q.question_no,reasons:r.reasons});}
     return {total:list.length,valid,invalid,validCount:valid.length,invalidCount:invalid.length,duplicateIds,chapterCounts,yearCounts};
   }
   window.TouhanValidator={validateQuestion,validateDatabase};
 })();
 (function(){
-  const DISTRIBUTION={'第1章':5,'第2章':5,'第3章':5,'第4章':10,'第5章':5};
-  const HISTORY_KEY='touhan.engine.generator.history.v040';
-  function hashSeed(text){let h=2166136261;for(const c of text){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0}
-  function rng(seed){let a=seed>>>0;return()=>{a+=0x6D2B79F5;let t=a;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}}
-  function shuffle(list,random){const a=[...list];for(let i=a.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
-  function history(){try{return JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]')}catch{return[]}}
-  function recentIds(days=4){const rows=history().slice(-days);return new Set(rows.flatMap(x=>x.questionIds||[]))}
-  function yearBalancedPick(candidates,count,random,blocked,selectedIds){
-    const groups={}; for(const q of candidates){(groups[q.year]??=[]).push(q)}
-    Object.keys(groups).forEach(y=>groups[y]=shuffle(groups[y],random));
-    const years=shuffle(Object.keys(groups),random), out=[];
-    let cursor=0, guard=0;
-    while(out.length<count && guard<10000){guard++;if(!years.length)break;const y=years[cursor%years.length];const pool=groups[y];let q;
-      while(pool.length && !q){const x=pool.shift();if(!selectedIds.has(x.question_id) && !blocked.has(x.question_id))q=x}
-      if(q){out.push(q);selectedIds.add(q.question_id)} cursor++;
-      if(years.every(k=>groups[k].length===0))break;
-    }
-    if(out.length<count){
-      for(const q of shuffle(candidates,random)){
-        if(out.length>=count)break;if(selectedIds.has(q.question_id))continue;out.push(q);selectedIds.add(q.question_id);
-      }
-    }
-    return out;
-  }
-  function toAppQuestion(q,no){
-    return {no,chapter:q.chapter,theme:`東京都${q.year}年度 問${q.question_no}`,knowledge_id:q.question_id,source:`過去問（東京都${q.year}年度 問${q.question_no}）`,question_type:'single_best',text:String(q.question_text).trim(),choices:q.choices.map((text,i)=>({id:String(i+1),text})),answer:String(q.answer),explanation:`正答は${q.answer}です。東京都${q.year}年度の公式過去問です。`};
-  }
-  function generate({questions,date,dayId,title}){
-    if(!Array.isArray(questions)||questions.length<120)throw new Error(`使用可能問題が不足しています（${questions?.length||0}問）`);
-    const random=rng(hashSeed(`${date}|${dayId}|${questions.length}`));
-    const blocked=recentIds(3), selectedIds=new Set(), sets=[];
-    for(let setNo=1;setNo<=4;setNo++){
-      const picked=[];
-      for(const [chapter,count] of Object.entries(DISTRIBUTION)){
-        const pool=questions.filter(q=>q.chapter===chapter);
-        picked.push(...yearBalancedPick(pool,count,random,blocked,selectedIds));
-      }
-      const ordered=shuffle(picked,random);
-      sets.push({id:`${dayId}-set-${setNo}`,title:`第${setNo}セット`,note:`全120問中 ${setNo}/4`,questions:ordered.map((q,i)=>toAppQuestion(q,i+1))});
-    }
-    const result={id:dayId,title,date:date.replace(/-/g,'/'),category:'exam_style',category_label:'本番形式',sets};
-    const ids=sets.flatMap(s=>s.questions.map(q=>q.knowledge_id));
-    const rows=history().filter(x=>x.dayId!==dayId);rows.push({dayId,date,resultTitle:title,questionIds:ids,createdAt:new Date().toISOString()});
-    localStorage.setItem(HISTORY_KEY,JSON.stringify(rows.slice(-30)));
-    return result;
-  }
+  const DISTRIBUTION={'第1章':5,'第2章':5,'第3章':5,'第4章':10,'第5章':5}; const HISTORY_KEY='touhan.engine.generator.history.v042';
+  function hashSeed(text){let h=2166136261;for(const c of text){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0} function rng(seed){let a=seed>>>0;return()=>{a+=0x6D2B79F5;let t=a;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}} function shuffle(list,random){const a=[...list];for(let i=a.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+  function history(){try{return JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]')}catch{return[]}} function recentIds(days=4){return new Set(history().slice(-days).flatMap(x=>x.questionIds||[]))}
+  function pick(pool,count,random,blocked,selected){const years={};for(const q of pool)(years[q.year]??=[]).push(q);Object.keys(years).forEach(y=>years[y]=shuffle(years[y],random));const ys=shuffle(Object.keys(years),random),out=[];let c=0,g=0;while(out.length<count&&ys.length&&g++<10000){const y=ys[c++%ys.length];let q;while(years[y].length&&!q){const x=years[y].shift();if(!selected.has(x.question_id)&&!blocked.has(x.question_id))q=x}if(q){out.push(q);selected.add(q.question_id)}if(ys.every(k=>years[k].length===0))break}return out}
+  function toAppQuestion(q,no){return {no,chapter:q.chapter,theme:`東京都${q.year}年度 問${q.question_no}`,knowledge_id:q.question_id,source:`過去問（東京都${q.year}年度 問${q.question_no}）`,question_type:'single_best',text:String(q.question_text).trim(),choices:q.choices.map((text,i)=>({id:String(i+1),text})),answer:String(q.answer),explanation:`正答は${q.answer}です。東京都${q.year}年度の公式過去問です。`}}
+  function generate({questions,date,dayId,title}){if(!Array.isArray(questions)||questions.length<120)throw new Error(`使用可能問題が不足しています（${questions?.length||0}問）`);const random=rng(hashSeed(`${date}|${dayId}|${questions.length}`)),blocked=recentIds(3),selected=new Set(),sets=[];
+    for(let s=1;s<=4;s++){const picked=[];for(const [chapter,count] of Object.entries(DISTRIBUTION))picked.push(...pick(questions.filter(q=>q.chapter===chapter),count,random,blocked,selected));if(picked.length<30){for(const q of shuffle(questions,random)){if(picked.length>=30)break;if(!selected.has(q.question_id)&&!blocked.has(q.question_id)){picked.push(q);selected.add(q.question_id)}}}if(picked.length<30)throw new Error(`第${s}セットを30問確保できませんでした`);sets.push({id:`${dayId}-set-${s}`,title:`第${s}セット`,note:`全120問中 ${s}/4`,questions:shuffle(picked,random).map((q,i)=>toAppQuestion(q,i+1))})}
+    const result={id:dayId,title,date:date.replace(/-/g,'/'),category:'exam_style',category_label:'本番形式',sets};const ids=sets.flatMap(s=>s.questions.map(q=>q.knowledge_id));const rows=history().filter(x=>x.dayId!==dayId);rows.push({dayId,date,resultTitle:title,questionIds:ids,createdAt:new Date().toISOString()});localStorage.setItem(HISTORY_KEY,JSON.stringify(rows.slice(-30)));return result}
   window.TouhanGenerator={generate,DISTRIBUTION,HISTORY_KEY};
 })();
 (function(){
