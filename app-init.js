@@ -19,12 +19,12 @@
   }
   function download(name,obj){const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u)}
   document.addEventListener('DOMContentLoaded',()=>{
-    $('genDate').value=today();$('genRound').addEventListener('input',syncMeta);
+    $('genDate').value=today();$('genRound').addEventListener('input',syncMeta);$('genMode').addEventListener('change',()=>{$('generateDailyBtn').textContent=$('genMode').value==='one_by_one'?'一問一答120問生成':'本番形式120問生成';});
     document.querySelectorAll('.mode-tab').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.mode-tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.mode-panel').forEach(x=>x.classList.add('hidden'));b.classList.add('active');$(b.dataset.panel).classList.remove('hidden')}));
     $('loadDbBtn').onclick=()=>loadBundled().catch(e=>setStatus(e.message,'err'));
     $('validateDbBtn').onclick=()=>validate().catch(e=>setStatus(e.message,'err'));
     $('masterFile').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;rawDb=JSON.parse(await f.text());report=null;setStatus(`ローカルDB読込完了：${rawDb.questions?.length||0}問`,'ok')}catch(err){setStatus(`読込失敗：${err.message}`,'err')}};
-    $('generateDailyBtn').onclick=async()=>{try{if(!report)await validate();generated=TouhanGenerator.generate({questions:report.valid,date:$('genDate').value,dayId:$('genDayId').value.trim(),title:$('genTitle').value.trim()});renderGenerated(generated);setStatus('120問を生成しました。統合JSONを学習アプリへ取り込めます。','ok')}catch(e){setStatus(`生成失敗：${e.message}`,'err')}};
+    $('generateDailyBtn').onclick=async()=>{try{if(!report)await validate();const mode=$('genMode').value;generated=TouhanGenerator.generate({questions:report.valid,date:$('genDate').value,dayId:$('genDayId').value.trim(),title:$('genTitle').value.trim(),mode});renderGenerated(generated);setStatus(`${mode==='one_by_one'?'一問一答':'本番形式'}120問を生成しました。統合JSONを学習アプリへ取り込めます。`,'ok')}catch(e){setStatus(`生成失敗：${e.message}`,'err')}};
     $('downloadDailyBtn').onclick=()=>generated?download(`${generated.id}_all_sets.json`,generated):setStatus('先に120問生成してください','err');
     $('downloadSetsBtn').onclick=()=>{if(!generated)return setStatus('先に120問生成してください','err');generated.sets.forEach(set=>download(`${set.id}.json`,{...generated,sets:[set]}))};
     loadBundled().then(validate).catch(e=>setStatus(`自動読込できません。ローカルDBを選択してください：${e.message}`,'err'));
