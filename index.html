@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width,initial-scale=1" name="viewport"/>
-<title>登録販売者 過去問エンジン v0.9.3</title>
+<title>登録販売者 過去問エンジン v1.0.0</title>
 <style>
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.7;margin:16px;}
 button{font-size:16px;padding:10px 12px;margin:4px;}
@@ -19,9 +19,8 @@ textarea{height:220px;font-family:ui-monospace,Menlo,monospace;font-size:12px;}
 .mode-tabs{display:flex;gap:8px;margin:16px 0}.mode-tab{background:#eee}.mode-tab.active,.primary{background:#1257c7;color:#fff}.hidden{display:none}.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.button-row{display:flex;flex-wrap:wrap;gap:6px}.file-label{display:block;margin-top:12px}.status-box{padding:10px;border-radius:8px;background:#f4f6f8;margin-top:10px}.status-box.ok{background:#e8f5e9;color:#145a1f}.status-box.err{background:#ffebee;color:#9a0015}.summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}.summary-item{background:#f5f5f5;border-radius:8px;padding:10px}.summary-item b{display:block;font-size:20px}.large-json{height:360px}.hero-card{border-color:#b8c9e8}pre{white-space:pre-wrap;word-break:break-word}@media(max-width:600px){.grid2{grid-template-columns:1fr}}</style>
 <link rel="apple-touch-icon" href="./icon-192.png"><link rel="manifest" href="./manifest.webmanifest"></head>
 <body>
-<h1>登録販売者 過去問エンジン v0.9.3</h1>
-<p class="small">過去問DB検査・一問一答120問／総合演習60問／本番形式120問の生成・学習アプリ互換JSON出力。</p><div class="mode-tabs"><button class="mode-tab active" data-panel="generatorPanel">Generator</button><button class="mode-tab" data-panel="legacyPanel">旧一問一答</button></div>
-<section class="mode-panel" id="generatorPanel">
+<h1>登録販売者 過去問エンジン v1.0.0</h1>
+<p class="small">過去問DB検査・一問一答120問／総合演習60問／本番形式120問の生成・学習アプリ互換JSON出力。</p><section class="mode-panel" id="generatorPanel">
 <div class="card hero-card">
 <h2>毎日の問題を生成</h2>
 <p class="small">東京2021〜2025の公式過去問DBから、選択した形式・日付・生成区分で問題を生成します。一問一答は、公式問題の各記述を○×形式へ分解して生成します。第1〜5章を原則 5・5・5・10・5問で配分し、品質優先で不足章は他章から補います。</p>
@@ -37,7 +36,7 @@ textarea{height:220px;font-family:ui-monospace,Menlo,monospace;font-size:12px;}
 <button id="loadDbBtn">DBを読み込む</button>
 <button id="validateDbBtn">DBを検査</button>
 <button class="primary" id="generateDailyBtn">一問一答を生成</button>
-<button id="downloadDailyBtn">統合JSON保存</button><button id="downloadAnswerBtn">採点用解答JSON保存</button>
+<button id="downloadDailyBtn">統合JSON保存</button>
 <button id="downloadSetsBtn">個別JSON保存</button>
 </div>
 <label class="file-label">ローカルDBを選択（自動読込できない場合）<input accept="application/json,.json" id="masterFile" type="file"/></label>
@@ -54,52 +53,7 @@ textarea{height:220px;font-family:ui-monospace,Menlo,monospace;font-size:12px;}
 <textarea class="large-json" id="generatedJson" placeholder="生成後のアプリ互換JSONが表示されます"></textarea>
 </div>
 </section>
-<section class="mode-panel hidden" id="legacyPanel">
-<div class="card">
-<label>日付</label>
-<input id="date" value="2026/7/7"/>
-<label>Day ID</label>
-<input id="dayId" value="day-004"/>
-<label>タイトル</label>
-<input id="dayTitle" value="第4回"/>
-<label>表示セット</label>
-<select id="setNo" onchange="renderCurrentSet()">
-<option value="1">第1セット</option>
-<option value="2">第2セット</option>
-<option value="3">第3セット</option>
-<option value="4">第4セット</option>
-</select>
-<button onclick="generateOne()">表示セットを生成</button>
-<button onclick="generateAll()">4セット生成</button>
-<button onclick="copyProblemJson()">問題JSONコピー</button>
-<button onclick="downloadProblemJson()">表示セットJSON保存</button>
-<button onclick="downloadAllSets()">4セット統合JSON保存</button>
-</div>
-<h2>問題（答えなし）</h2>
-<div id="questions"></div>
-<h2>問題JSON</h2>
-<textarea id="problemJson"></textarea>
-<div class="card">
-<h2>採点</h2>
-<input id="answers" placeholder="例：○×○×... 30文字"/>
-<button onclick="grade()">表示セットを採点</button>
-<button onclick="copyGradeJson()">採点JSONコピー</button>
-<button onclick="downloadGradeJson()">採点JSON保存</button>
-<div id="gradeSummary"></div>
-</div>
-<h2>採点JSON</h2>
-<textarea id="gradeJson"></textarea>
-<div class="card">
-<h2>累計</h2>
-<button onclick="renderStats()">累計を更新</button>
-<button onclick="clearHistory()">履歴リセット</button>
-<div id="stats"></div>
-</div>
-
-
-
-</section>
-<script src="app.bundle.js?v=0.9.3"></script>
+<script src="app.bundle.js?v=1.0.0"></script>
 <script>
 window.addEventListener('load', function(){
   setTimeout(function(){
@@ -115,7 +69,7 @@ window.addEventListener('load', function(){
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
-      const reg = await navigator.serviceWorker.register("./service-worker.js?v=0.9.3", { updateViaCache: "none" });
+      const reg = await navigator.serviceWorker.register("./service-worker.js?v=1.0.0", { updateViaCache: "none" });
       await reg.update();
     } catch (e) { console.warn("Service Worker registration failed", e); }
   });

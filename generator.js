@@ -150,6 +150,8 @@
     return cleaned;
   }
 
+  function makeShortExplanation(answer){return `正答は「${answer}」です。`;}
+  function makeDetailedExplanation(q,answer){const source=`東京都${q.year}年度 問${q.question_no}`;return `正答は「${answer}」です。${source}の公式過去問に基づきます。問題文と各選択肢を照合し、正しい組合せ・記述を確認してください。`;}
   function toExamQuestion(q,no){
     return {
       no,
@@ -161,7 +163,8 @@
       text:formatExamQuestionText(q),
       choices:q.choices.map((text,i)=>({id:String(i+1),text:formatExamChoiceText(q,text)})),
       answer:String(q.answer),
-      explanation:`正答は${q.answer}です。東京都${q.year}年度の公式過去問です。`
+      shortExplanation:makeShortExplanation(String(q.answer)),
+      explanation:makeDetailedExplanation(q,String(q.answer))
     };
   }
 
@@ -318,7 +321,7 @@
     return false;
   }
   function buildOneByOnePool(questions){return questions.flatMap(deriveOneByOne).filter(x=>isNaturalStatement(x.statement))}
-  function toOneByOneQuestion(q,no){return {no,chapter:q.chapter,theme:`東京都${q.year}年度`,knowledge_id:q.question_id,source:`過去問（東京都${q.year}年度 問${q.question_no}）`,answer:q.truth?'○':'×',text:cleanText(q.statement),explanation:`東京都${q.year}年度の公式過去問に基づく記述です。正解は「${q.truth?'○':'×'}」です。`,category:'one_by_one',category_label:'一問一答'}}
+  function toOneByOneQuestion(q,no){const answer=q.truth?'○':'×';return {no,chapter:q.chapter,theme:`東京都${q.year}年度`,knowledge_id:q.question_id,source:`過去問（東京都${q.year}年度 問${q.question_no}）`,answer,text:cleanText(q.statement),shortExplanation:`正答は「${answer}」です。`,explanation:`正答は「${answer}」です。東京都${q.year}年度 問${q.question_no}の公式過去問に基づく記述です。記述の主語・条件・例外を確認してください。`,category:'one_by_one',category_label:'一問一答'}}
 
   function pickByDistribution(pool,distribution,random,blocked,selected,selectedQuestions=[],duplicateGuard=null){const picked=[];for(const [chapter,count] of Object.entries(distribution))picked.push(...pick(pool.filter(q=>q.chapter===chapter),count,random,blocked,selected,selectedQuestions,duplicateGuard));return picked}
   function makeSet({pool,distribution,count,id,title,note,random,blocked,selected,mapper,selectedQuestions=[],duplicateGuard=null}){let picked=pickByDistribution(pool,distribution,random,blocked,selected,selectedQuestions,duplicateGuard);if(picked.length<count){for(const q of shuffle(pool,random)){if(picked.length>=count)break;if(selected.has(q.question_id)||blocked.has(q.question_id))continue;if(duplicateGuard&&duplicateGuard(q,selectedQuestions))continue;picked.push(q);selected.add(q.question_id);selectedQuestions.push(q)}}if(picked.length<count)throw new Error(`${title}を${count}問確保できませんでした（類似問題除外後）`);return {id,title,note,questions:shuffle(picked,random).map((q,i)=>mapper(q,i+1))}}
@@ -344,7 +347,7 @@
       const back=makeSet({pool:examPool,distribution:DISTRIBUTIONS.exam_pm,count:60,id:`${dayId}-back`,title:'後半 60問',note:'第3章40・第5章20',random,blocked,selected,mapper:toExamQuestion});
       result={id:dayId,title:actualTitle,date:date.replace(/-/g,'/'),category:'exam_style',category_label:'本番形式120問',mode:'exam_style',kind,sets:[front,back]};
     }
-    result.generation_kind=kind;result.generation_kind_label=KIND_LABELS[kind]||kind;result.generation_sequence=Math.max(1,Number(sequence)||1);result.generated_at=new Date().toISOString();result.answer_key={schemaVersion:"1.1",sets:result.sets.map(s=>({id:s.id,title:s.title,answers:s.questions.map(q=>({no:q.no,answer:String(q.answer),explanation:q.explanation||""}))}))};saveHistory(result,mode,kind);return result;
+    result.schemaVersion="2.0";result.embeddedAnswerData=true;result.generation_kind=kind;result.generation_kind_label=KIND_LABELS[kind]||kind;result.generation_sequence=Math.max(1,Number(sequence)||1);result.generated_at=new Date().toISOString();saveHistory(result,mode,kind);return result;
   }
 
   window.TouhanGenerator={generate,buildOneByOnePool,DISTRIBUTIONS,HISTORY_KEY,KIND_LABELS,generatedTitle,cleanText,stripSourceQuestionNumber,formatExamQuestionText,formatExamChoiceText,extractLetterStatements,isUsableExamQuestion,isNaturalStatement,diceSimilarity,isNearDuplicateOneByOne};
