@@ -5,7 +5,7 @@
     exam_am:{'第1章':20,'第2章':20,'第4章':20},
     exam_pm:{'第3章':40,'第5章':20}
   };
-  const HISTORY_KEY='touhan.engine.generator.history.v081';
+  const HISTORY_KEY='touhan.engine.generator.history.v082';
 
   function hashSeed(text){let h=2166136261;for(const c of text){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0}
   function rng(seed){let a=seed>>>0;return()=>{a+=0x6D2B79F5;let t=a;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}}
@@ -133,7 +133,7 @@
   function isNaturalStatement(text){
     const t=cleanText(text);
     if(t.length<18||t.length>260)return false;
-    if(!/[。！？）)]$/.test(t))return false;
+    if(!/[。！？]$/.test(t))return false;
     if(/[�□■◆◇]|\*RRG|(?:[A-Z][a-z]?){5,}|[0-9A-Za-z]{10,}/.test(t))return false;
     if(/(?:問|正しい組合せ|誤っているものはどれか|正しいものはどれか)$/.test(t))return false;
     if(/^[ぁ-んァ-ヶー\s]+$/.test(t))return false;
