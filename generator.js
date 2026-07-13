@@ -268,6 +268,16 @@
     if(/(?:問|正しい組合せ|誤っているものはどれか|正しいものはどれか)$/.test(t))return false;
     if(/^[ぁ-んァ-ヶー\s]+$/.test(t))return false;
     if(/^[^。！？]{0,12}[、：]$/.test(t))return false;
+
+    // 単独では参照先が分からない文脈依存語を含む記述は、一問一答から除外する。
+    if(/(?:本剤|本品|本製品|当該医薬品|この医薬品|その医薬品|当該製品|同剤)/.test(t))return false;
+
+    // OCRで「陽イオン界面活性」が「陽性界面活性」等に崩れた記述を除外する。
+    if(/(?:陽性|陰性)界面活性/.test(t))return false;
+
+    // 「作用を真菌類示す」のように、目的語と「示す」の間へ不自然な語が挟まった文を除外する。
+    if(/作用を(?!示す)[^、。！？]{1,12}示す/.test(t))return false;
+
     return true;
   }
   function buildOneByOnePool(questions){return questions.flatMap(deriveOneByOne).filter(x=>isNaturalStatement(x.statement))}
