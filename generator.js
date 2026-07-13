@@ -5,7 +5,7 @@
     exam_am:{'第1章':20,'第2章':20,'第4章':20},
     exam_pm:{'第3章':40,'第5章':20}
   };
-  const HISTORY_KEY='touhan.engine.generator.history.v084';
+  const HISTORY_KEY='touhan.engine.generator.history.v085';
 
   function hashSeed(text){let h=2166136261;for(const c of text){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0}
   function rng(seed){let a=seed>>>0;return()=>{a+=0x6D2B79F5;let t=a;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}}
@@ -172,7 +172,7 @@
     for(const m of matches){
       const key=m[1].normalize('NFKC').toLowerCase();
       const body=cleanExamParagraph(m[2]).replace(/(?:１|1)[（(].*$/,'').trim();
-      if(body.length>=6)out[key]=body;
+      if(body.length>=2&&!/^[a-d](?:\s+[a-d]){1,3}$/i.test(body))out[key]=body;
     }
     return out;
   }

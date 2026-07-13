@@ -14,6 +14,22 @@
     if(choices.some(x=>x.length>25&&/[にのをがでとやし]$/.test(x))) reasons.push('選択肢末尾欠落');
     return reasons;
   }
+
+  function statementLabels(text){
+    const raw=String(text??'').replace(/\r/g,'').normalize('NFKC');
+    return [...new Set([...raw.matchAll(/(?:^|\n)\s*([a-d])\s+\S/g)].map(m=>m[1].toLowerCase()))];
+  }
+  function structuralReasons(q,choices){
+    const reasons=[];
+    const text=String(q.question_text??'');
+    const labels=statementLabels(text);
+    const marks=choices.flatMap(x=>String(x).match(/[正誤]/g)||[]);
+    const isTruthTable=choices.length===5 && marks.length>=15;
+    const isPair=/組合せはどれか/.test(text) && choices.some(x=>/[a-dａ-ｄ].*[,、・].*[a-dａ-ｄ]/i.test(String(x)));
+    if((isTruthTable||isPair) && labels.length>0 && labels.length<4)reasons.push(`記述a〜d欠落（${labels.join(',')}のみ）`);
+    if((isTruthTable||isPair) && labels.length===0)reasons.push('組合せ対象の記述欠落');
+    return reasons;
+  }
   function validateQuestion(q){
     const reasons=[]; const choices=Array.isArray(q.choices)?q.choices.map(normalize):[];
     if(!q.question_id) reasons.push('question_idなし');
@@ -25,6 +41,7 @@
     if(!['1','2','3','4','5'].includes(String(q.answer))) reasons.push('正答不正');
     if(!q.year) reasons.push('年度なし');
     reasons.push(...ocrQualityReasons(q,choices));
+    reasons.push(...structuralReasons(q,choices));
     return {ok:reasons.length===0,reasons,choices};
   }
   function validateDatabase(db){
