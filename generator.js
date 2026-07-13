@@ -5,7 +5,7 @@
     exam_am:{'第1章':20,'第2章':20,'第4章':20},
     exam_pm:{'第3章':40,'第5章':20}
   };
-  const HISTORY_KEY='touhan.engine.generator.history.v082';
+  const HISTORY_KEY='touhan.engine.generator.history.v083';
 
   function hashSeed(text){let h=2166136261;for(const c of text){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0}
   function rng(seed){let a=seed>>>0;return()=>{a+=0x6D2B79F5;let t=a;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}}
@@ -56,6 +56,25 @@
     return text;
   }
 
+  function examPrompt(q){
+    const raw=String(q.question_text??'').replace(/\r/g,'');
+    const firstStatement=raw.search(/(?:^|\n)\s*[ａ-ｄa-d]\s+/m);
+    const promptSource=firstStatement>=0?raw.slice(0,firstStatement):raw;
+    let prompt=cleanText(promptSource,{stripQuestionNo:true});
+    const complete=prompt.match(/^[\s\S]*?(?:どれか。|組合せはどれか。|正しいか。|誤っているか。)/);
+    if(complete)prompt=complete[0].trim();
+    return prompt;
+  }
+
+  function formatExamQuestionText(q){
+    const prompt=examPrompt(q);
+    const statements=extractLetterStatements(q);
+    const blocks=Object.entries(statements)
+      .sort(([a],[b])=>a.localeCompare(b))
+      .map(([label,text])=>`【${label}】 ${cleanText(text)}`);
+    return blocks.length?[prompt,...blocks].filter(Boolean).join('\n\n'):prompt;
+  }
+
   function toExamQuestion(q,no){
     return {
       no,
@@ -64,7 +83,7 @@
       knowledge_id:q.question_id,
       source:`過去問（東京都${q.year}年度 問${q.question_no}）`,
       question_type:'single_best',
-      text:cleanText(q.question_text,{stripQuestionNo:true}),
+      text:formatExamQuestionText(q),
       choices:q.choices.map((text,i)=>({id:String(i+1),text:cleanText(text)})),
       answer:String(q.answer),
       explanation:`正答は${q.answer}です。東京都${q.year}年度の公式過去問です。`
@@ -168,5 +187,5 @@
     result.generation_kind=kind;result.generation_kind_label=KIND_LABELS[kind]||kind;result.generation_sequence=Math.max(1,Number(sequence)||1);result.generated_at=new Date().toISOString();saveHistory(result,mode,kind);return result;
   }
 
-  window.TouhanGenerator={generate,buildOneByOnePool,DISTRIBUTIONS,HISTORY_KEY,KIND_LABELS,generatedTitle,cleanText,stripSourceQuestionNumber};
+  window.TouhanGenerator={generate,buildOneByOnePool,DISTRIBUTIONS,HISTORY_KEY,KIND_LABELS,generatedTitle,cleanText,stripSourceQuestionNumber,formatExamQuestionText};
 })();

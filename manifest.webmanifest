@@ -1,7 +1,7 @@
 {
   "name": "登録販売者 過去問エンジン",
   "short_name": "登販エンジン",
-  "start_url": "./?v=0.8.2",
+  "start_url": "./?v=0.8.3",
   "display": "standalone",
   "background_color": "#23272d",
   "theme_color": "#303740",
