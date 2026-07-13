@@ -1,4 +1,4 @@
-const CACHE = "touhan-engine-v0.8.5";
+const CACHE = "touhan-engine-v0.8.6";
 const ASSETS = [
   "./", "./index.html", "./app.bundle.js", "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./data/tokyo_master.json",
