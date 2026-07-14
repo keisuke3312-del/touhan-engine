@@ -427,15 +427,25 @@
 
   function statementNeedsContext(statement){
     const s=cleanText(statement);
-    return /(?:報告の対象|報告がなされる|報告しなければ|当該|これ|それ|この|その|同梱|廃止され|記載され|提供され|認めるとき|対象となり得る|場合であっても|使用を中止するよう|使用するよう|受診するよう)/.test(s);
+    return /(?:報告の対象|報告がなされる|報告しなければ|因果関係|苦情の申立て|相談を受け付け|交付され|交付する|指定され|指定する|公表され|公表する|提供され|提供する|実施され|実施する|届出を|届け出|当該|これ|それ|この|その|同梱|廃止され|記載され|認めるとき|対象となり得る|場合であっても|使用を中止するよう|使用するよう|受診するよう)/.test(s);
+  }
+
+  function sourceRequiresTopic(q){
+    const topic=sourceTopic(q);
+    return /(?:センター|制度|報告|添付文書|法第|救済|認定|許可|届出|相談窓口|行政機関|厚生労働|都道府県知事|製造販売業者)/.test(topic);
+  }
+
+  function hasExplicitInstitutionalSubject(statement){
+    const s=cleanText(statement);
+    return /^(?:厚生労働大臣|都道府県知事|医薬品PLセンター|PMDA|独立行政法人医薬品医療機器総合機構|製造販売業者|薬局開設者|店舗販売業者|配置販売業者|医薬関係者|登録販売者|薬剤師|国|地方公共団体|報告者|申請者|購入者|消費者|患者)(?:は|が|には|では)/.test(s);
   }
 
   function contextualizeStatement(q,statement){
     const s=cleanText(statement);
     const topic=sourceTopic(q);
     if(!topic)return s;
-    if(s.startsWith(topic)||s.includes(`${topic}は`)||s.includes(`${topic}では`))return s;
-    if(statementNeedsContext(s))return `${topic}について、${s}`;
+    if(s.startsWith(topic)||s.includes(`${topic}は`)||s.includes(`${topic}では`)||s.includes(`${topic}について`))return s;
+    if(statementNeedsContext(s)||(sourceRequiresTopic(q)&&!hasExplicitInstitutionalSubject(s)))return `${topic}について、${s}`;
     return s;
   }
 
@@ -509,6 +519,7 @@
     if(/^(?:インドメタシン|殺菌消毒薬|プレドニゾロン).*(?:使用を中止|使用するよう|勧める)/.test(t))reasons.push('事例選択肢断片');
     if(/^(?:紙の添付文書|添付文書に記載|製造販売業者の名称).*(?:廃止され|記載され|提供され)/.test(t) && !/について、/.test(t))reasons.push('制度文脈欠落');
     if(/^(?:医薬品との因果関係|安全対策上必要|保健衛生上の危害).*(?:報告|対象)/.test(t) && !/について、/.test(t))reasons.push('制度文脈欠落');
+    if(/(?:相談を受け付けている|交付している|指定している|公表している|提供している|実施している|報告の対象となり得る)[。！？]$/.test(t) && !/(?:について、|センターは|大臣は|知事は|機構は|業者は|医薬関係者は)/.test(t))reasons.push('主体不明');
 
     if(/^[^。！？、]{1,24}(?:のため|であるため|なので)[、，]/.test(t))reasons.push('理由始まり');
     if(/^(?:これ|それ|このもの|そのもの|当該品)(?:は|を|に|が|で)/.test(t))reasons.push('指示語始まり');
