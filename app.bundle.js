@@ -1,15 +1,31 @@
 (function(){
   const normalize=value=>String(value??'').replace(/\s+/g,' ').trim();
   const jp=/[一-龯ぁ-んァ-ヶ]/g;
+  function structuredStatements(q){
+    if(Array.isArray(q?.statements)){
+      const out={};
+      for(const row of q.statements){
+        const label=String(row?.label??'').normalize('NFKC').toLowerCase().trim();
+        const text=normalize(row?.text);
+        if(/^[a-d]$/.test(label)&&text&&!out[label])out[label]=text;
+      }
+      if(Object.keys(out).length)return out;
+    }
+    const raw=String(q?.question_text??'').replace(/\r/g,'').normalize('NFKC');
+    const matches=[...raw.matchAll(/(?:^|\n)\s*([a-d])\s+([\s\S]*?)(?=(?:\n\s*[a-d]\s+)|$)/g)];
+    const out={};
+    for(const m of matches){const text=normalize(m[2]);if(text&&!out[m[1]])out[m[1]]=text;}
+    return out;
+  }
   function ocrQualityReasons(q,choices){
-    const reasons=[]; const text=String(q.question_text??''); const joined=[text,...choices].join(' ');
+    const reasons=[]; const text=String(q.question_text??''); const statements=Object.values(structuredStatements(q)); const joined=[text,...statements,...choices].join(' ');
     const jpCount=(text.match(jp)||[]).length;
     const spaced=(text.match(/[一-龯ぁ-んァ-ヶ]\s+[一-龯ぁ-んァ-ヶ]/g)||[]).length;
     if(jpCount>0&&spaced/jpCount>0.28) reasons.push('文字間空白が多い');
-    if(/(?:\b(?:IE|E|R|B|N|REKE|BREEAD|BREEED)\b|[#®&]|[A-Z]{4,})/.test(joined)) reasons.push('OCRノイズ記号');
+    if(/(?:\*RRG|&OLQLFDO|3UDFWLFH|\b(?:REKE|BREEAD|BREEED)\b|[#®])/.test(joined)) reasons.push('OCRノイズ記号');
     if(joined.includes('�')) reasons.push('文字化け');
     const combo=choices.filter(x=>/^[（(]?[a-dａ-ｄ][,、，]\s*[a-dａ-ｄ][)）]?$/i.test(x)).length;
-    const hasStatements=/(?:^|\n)\s*[a-dａ-ｄ][\s　]+/im.test(text);
+    const hasStatements=Object.keys(structuredStatements(q)).length>0;
     if(combo>=4&&!hasStatements) reasons.push('組合せ対象の記述欠落');
     if(choices.some(x=>x.length>25&&/[にのをがでとやし]$/.test(x))) reasons.push('選択肢末尾欠落');
     return reasons;
@@ -22,16 +38,25 @@
   function structuralReasons(q,choices){
     const reasons=[];
     const text=String(q.question_text??'');
-    const labels=statementLabels(text);
-    const marks=choices.flatMap(x=>String(x).match(/[正誤]/g)||[]);
-    const isTruthTable=choices.length===5 && marks.length>=15;
-    const isPair=/組合せはどれか/.test(text) && choices.some(x=>/[a-dａ-ｄ].*[,、・].*[a-dａ-ｄ]/i.test(String(x)));
-    if((isTruthTable||isPair) && labels.length>0 && labels.length<4)reasons.push(`記述a〜d欠落（${labels.join(',')}のみ）`);
-    if((isTruthTable||isPair) && labels.length===0)reasons.push('組合せ対象の記述欠落');
+    const direct=Array.isArray(q?.statements)?q.statements:[];
+    const labels=[...new Set(direct.map(x=>String(x?.label??'').normalize('NFKC').toLowerCase()).filter(x=>/^[a-d]$/.test(x)))];
+    const fallback=labels.length?labels:statementLabels(text);
+    const marksPerChoice=choices.map(x=>(String(x).match(/[正誤]/g)||[]).length);
+    const expectedTruth=Math.max(0,...marksPerChoice);
+    const pairPattern=/^[（(]?\s*([a-dａ-ｄ])\s*[,、・]\s*([a-dａ-ｄ])\s*[）)]?$/i;
+    const pairChoices=choices.map(x=>String(x).match(pairPattern)).filter(Boolean);
+    const isTruthTable=choices.length===5&&expectedTruth>=3;
+    const isPair=/組合せはどれか/.test(text)&&pairChoices.length>=4;
+    const expected=isTruthTable?expectedTruth:(isPair?Math.max(...pairChoices.flatMap(m=>[m[1],m[2]]).map(x=>x.normalize('NFKC').toLowerCase().charCodeAt(0)-96),0):0);
+    if((isTruthTable||isPair)&&fallback.length<expected)reasons.push(`組合せ対象の記述欠落（${fallback.join(',')||'なし'} / 必要${expected}件）`);
     return reasons;
   }
+
   function validateQuestion(q){
-    const reasons=[]; const choices=Array.isArray(q.choices)?q.choices.map(normalize):[];
+    const reasons=[];
+    const cleanChoice=x=>normalize(x).replace(/(?:人体の働きと医薬品|薬事に関する法規と制度|主な医薬品とその作用|医薬品の適正使用と安全対策)$/,'').trim();
+    const choices=Array.isArray(q.choices)?q.choices.map(cleanChoice):[];
+    if(q?.quality?.status && q.quality.status!=='ok')reasons.push(`抽出品質:${q.quality.status}`);
     if(!q.question_id) reasons.push('question_idなし');
     if(!normalize(q.question_text)||normalize(q.question_text).length<20) reasons.push('問題文不足');
     if(!/^第[1-5]章$/.test(normalize(q.chapter))) reasons.push('章が不正');
@@ -49,7 +74,7 @@
     for(const q of list){if(seen.has(q.question_id)){duplicateIds.push(q.question_id);invalid.push({id:q.question_id,reasons:['ID重複']});continue;}seen.add(q.question_id);const r=validateQuestion(q);if(r.ok){valid.push({...q,choices:r.choices});chapterCounts[q.chapter]=(chapterCounts[q.chapter]||0)+1;yearCounts[q.year]=(yearCounts[q.year]||0)+1;}else invalid.push({id:q.question_id||'(なし)',year:q.year,no:q.question_no,reasons:r.reasons});}
     return {total:list.length,valid,invalid,validCount:valid.length,invalidCount:invalid.length,duplicateIds,chapterCounts,yearCounts};
   }
-  window.TouhanValidator={validateQuestion,validateDatabase};
+  window.TouhanValidator={validateQuestion,validateDatabase,structuredStatements};
 })();
 (function(){
   const DISTRIBUTIONS={
@@ -58,7 +83,7 @@
     exam_am:{'第1章':20,'第2章':20,'第4章':20},
     exam_pm:{'第3章':40,'第5章':20}
   };
-  const HISTORY_KEY='touhan.engine.generator.history.v085';
+  const HISTORY_KEY='touhan.engine.generator.history.v110';
 
   function hashSeed(text){let h=2166136261;for(const c of text){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0}
   function rng(seed){let a=seed>>>0;return()=>{a+=0x6D2B79F5;let t=a;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}}
@@ -122,6 +147,21 @@
   function cleanExamParagraph(value){
     return cleanText(String(value??'').replace(/\n+/g,' '));
   }
+  function sourceStatements(q){
+    const direct=TouhanValidator?.structuredStatements?.(q)||{};
+    const out={};
+    for(const [label,text] of Object.entries(direct)){
+      const cleaned=cleanExamParagraph(text);
+      if(cleaned)out[label]=cleaned;
+    }
+    return Object.keys(out).length?out:extractLetterStatements(q);
+  }
+
+  function questionSemanticText(q){
+    const prompt=examPrompt(q);
+    const statements=Object.entries(sourceStatements(q)).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>`${k}:${v}`).join(' ');
+    return `${prompt} ${statements}`.trim();
+  }
 
   function examPrompt(q){
     const raw=normalizeExamRaw(q.question_text);
@@ -172,7 +212,7 @@
   function formatExamQuestionText(q){
     if(isFillBlankQuestion(q))return formatFillBlankText(q);
     const prompt=examPrompt(q);
-    const statements=extractLetterStatements(q);
+    const statements=sourceStatements(q);
     const blocks=Object.entries(statements)
       .sort(([a],[b])=>a.localeCompare(b))
       .map(([label,text])=>`【${label}】 ${splitPairStatement(text)}`);
@@ -265,7 +305,7 @@
   function isUsableExamQuestion(q){
     const needed=requiredStatementCount(q);
     if(needed<3)return true;
-    const statements=extractLetterStatements(q);
+    const statements=sourceStatements(q);
     return Object.keys(statements).length>=needed;
   }
 
@@ -295,7 +335,7 @@
 
   function deriveOneByOne(q){
     const out=[];
-    const statements=extractLetterStatements(q);
+    const statements=sourceStatements(q);
     const truth=truthFromPattern(q,statements);
     if(truth){
       for(const key of Object.keys(statements)){
@@ -320,7 +360,7 @@
     const t=cleanText(text);
     if(t.length<18||t.length>260)return false;
     if(!/[。！？]$/.test(t))return false;
-    if(/[�□■◆◇]|\*RRG|(?:[A-Z][a-z]?){5,}|[0-9A-Za-z]{10,}/.test(t))return false;
+    if(/[�□■◆◇]|\*RRG|&OLQLFDO|3UDFWLFH|(?:[A-Z][a-z]?){5,}|[0-9A-Za-z]{10,}/.test(t))return false;
     if(/(?:問|正しい組合せ|誤っているものはどれか|正しいものはどれか)$/.test(t))return false;
     if(/^[ぁ-んァ-ヶー\s]+$/.test(t))return false;
     if(/^[^。！？]{0,12}[、：]$/.test(t))return false;
@@ -372,6 +412,7 @@
   function isNearDuplicateOneByOne(candidate,selectedQuestions){
     const c=cleanText(candidate.statement);
     for(const prev of selectedQuestions){
+      if(candidate.source_question_id&&prev.source_question_id===candidate.source_question_id)return true;
       const p=cleanText(prev.statement);
       const sim=diceSimilarity(c,p,3);
       if(sim>=0.62)return true;
@@ -380,6 +421,15 @@
         const shorter=c2.length<=p2.length?c2:p2,longer=c2.length<=p2.length?p2:c2;
         if(longer.includes(shorter)&&shorter.length/longer.length>=0.68)return true;
       }
+    }
+    return false;
+  }
+  function isNearDuplicateExam(candidate,selectedQuestions){
+    const c=questionSemanticText(candidate);
+    for(const prev of selectedQuestions){
+      if(candidate.question_id===prev.question_id)return true;
+      const sim=diceSimilarity(c,questionSemanticText(prev),3);
+      if(sim>=0.68)return true;
     }
     return false;
   }
@@ -401,19 +451,19 @@
       for(let i=1;i<=4;i++)sets.push(makeSet({pool,distribution:DISTRIBUTIONS.one_by_one,count:30,id:`${dayId}-set-${i}`,title:`第${i}セット`,note:`全120問中 ${i}/4`,random,blocked,selected,mapper:toOneByOneQuestion,selectedQuestions,duplicateGuard:isNearDuplicateOneByOne}));
       result={id:dayId,title:actualTitle,date:date.replace(/-/g,'/'),category:'one_by_one',category_label:'一問一答',mode:'one_by_one',kind,sets};
     }else if(mode==='practice60'){
-      const examPool=questions.filter(isUsableExamQuestion);
-      const full=makeSet({pool:examPool,distribution:DISTRIBUTIONS.practice60,count:60,id:`${dayId}-practice60`,title:'総合演習 60問',note:'全5章を本番比率で総合演習',random,blocked,selected,mapper:toExamQuestion});
+      const examPool=questions.filter(isUsableExamQuestion),selectedQuestions=[];
+      const full=makeSet({pool:examPool,distribution:DISTRIBUTIONS.practice60,count:60,id:`${dayId}-practice60`,title:'総合演習 60問',note:'全5章を本番比率で総合演習',random,blocked,selected,mapper:toExamQuestion,selectedQuestions,duplicateGuard:isNearDuplicateExam});
       result={id:dayId,title:actualTitle,date:date.replace(/-/g,'/'),category:'practice60',category_label:'総合演習60問',mode:'practice60',kind,sets:[{id:`${dayId}-practice60-front`,title:'前半 30問',note:'総合演習60問の前半',questions:full.questions.slice(0,30)},{id:`${dayId}-practice60-back`,title:'後半 30問',note:'総合演習60問の後半',questions:full.questions.slice(30)}]};
     }else{
-      const examPool=questions.filter(isUsableExamQuestion);
-      const front=makeSet({pool:examPool,distribution:DISTRIBUTIONS.exam_am,count:60,id:`${dayId}-front`,title:'前半 60問',note:'第1章20・第2章20・第4章20',random,blocked,selected,mapper:toExamQuestion});
-      const back=makeSet({pool:examPool,distribution:DISTRIBUTIONS.exam_pm,count:60,id:`${dayId}-back`,title:'後半 60問',note:'第3章40・第5章20',random,blocked,selected,mapper:toExamQuestion});
+      const examPool=questions.filter(isUsableExamQuestion),selectedQuestions=[];
+      const front=makeSet({pool:examPool,distribution:DISTRIBUTIONS.exam_am,count:60,id:`${dayId}-front`,title:'前半 60問',note:'第1章20・第2章20・第4章20',random,blocked,selected,mapper:toExamQuestion,selectedQuestions,duplicateGuard:isNearDuplicateExam});
+      const back=makeSet({pool:examPool,distribution:DISTRIBUTIONS.exam_pm,count:60,id:`${dayId}-back`,title:'後半 60問',note:'第3章40・第5章20',random,blocked,selected,mapper:toExamQuestion,selectedQuestions,duplicateGuard:isNearDuplicateExam});
       result={id:dayId,title:actualTitle,date:date.replace(/-/g,'/'),category:'exam_style',category_label:'本番形式120問',mode:'exam_style',kind,sets:[front,back]};
     }
     result.schemaVersion="2.0";result.embeddedAnswerData=true;result.generation_kind=kind;result.generation_kind_label=KIND_LABELS[kind]||kind;result.generation_sequence=Math.max(1,Number(sequence)||1);result.generated_at=new Date().toISOString();saveHistory(result,mode,kind);return result;
   }
 
-  window.TouhanGenerator={generate,buildOneByOnePool,DISTRIBUTIONS,HISTORY_KEY,KIND_LABELS,generatedTitle,cleanText,stripSourceQuestionNumber,formatExamQuestionText,formatExamChoiceText,extractLetterStatements,isUsableExamQuestion,isNaturalStatement,diceSimilarity,isNearDuplicateOneByOne};
+  window.TouhanGenerator={generate,buildOneByOnePool,DISTRIBUTIONS,HISTORY_KEY,KIND_LABELS,generatedTitle,cleanText,stripSourceQuestionNumber,formatExamQuestionText,formatExamChoiceText,extractLetterStatements,isUsableExamQuestion,isNaturalStatement,diceSimilarity,isNearDuplicateOneByOne,isNearDuplicateExam,sourceStatements,questionSemanticText};
 })();
 (function(){
   let rawDb=null, report=null, generated=null;
