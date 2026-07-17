@@ -449,10 +449,18 @@
     return s;
   }
 
+  function isMultiColumnTableSource(q){
+    const prompt=cleanText(q?.question_text||'');
+    const raw=cleanText(q?.raw_text||'');
+    if(/殺菌消毒成分.*殺菌消毒作用又はその性質.*殺菌消毒作用を示す微生物等/.test(raw))return true;
+    if(/「[^」]+」と「[^」]+」に関する/.test(prompt)&&/(?:a|ａ).*?(?:b|ｂ).*?(?:c|ｃ)/i.test(raw))return true;
+    return false;
+  }
+
   function deriveOneByOne(q){
     const out=[];
     // 相談事例・症例問題は、個々の選択肢だけでは前提条件を失うため一問一答化しない。
-    if(isScenarioSourceQuestion(q))return out;
+    if(isScenarioSourceQuestion(q)||isMultiColumnTableSource(q))return out;
 
     const statements=sourceStatements(q);
     const truth=truthFromPattern(q,statements);
@@ -525,6 +533,8 @@
     if(/^(?:これ|それ|このもの|そのもの|当該品)(?:は|を|に|が|で)/.test(t))reasons.push('指示語始まり');
     if(/^(?:この|その|当該)(?:お薬|薬|医薬品|製剤|製品|商品)/.test(t))reasons.push('参照対象不明');
     if(/(?:15歳未満|小児|乳幼児).*(?:使用できません|服用できません).*(?:娘さん|息子さん|お子さん)/.test(t))reasons.push('事例前提欠落');
+    if(/アクリノール.*(?:創傷|患部).*(?:一般細\s*菌類|真菌類|ウイルス全般)/.test(t))reasons.push('表の列混入');
+    if(/(?:黄色の色素|刺激性が低く).*(?:一般細\s*菌類|真菌類|ウイルス全般).*(?:患部|しみにくい)/.test(t))reasons.push('表の列混入');
 
     return [...new Set(reasons)];
   }
@@ -605,7 +615,7 @@
     result.schemaVersion="2.0";result.embeddedAnswerData=true;result.generation_kind=kind;result.generation_kind_label=KIND_LABELS[kind]||kind;result.generation_sequence=Math.max(1,Number(sequence)||1);result.generated_at=new Date().toISOString();saveHistory(result,mode,kind);return result;
   }
 
-  window.TouhanGenerator={generate,buildOneByOnePool,DISTRIBUTIONS,HISTORY_KEY,KIND_LABELS,generatedTitle,cleanText,stripSourceQuestionNumber,formatExamQuestionText,formatExamChoiceText,extractLetterStatements,isUsableExamQuestion,isNaturalStatement,naturalStatementReasons,isScenarioSourceQuestion,sourceTopic,contextualizeStatement,diceSimilarity,isNearDuplicateOneByOne,isNearDuplicateExam,sourceStatements,questionSemanticText};
+  window.TouhanGenerator={generate,buildOneByOnePool,DISTRIBUTIONS,HISTORY_KEY,KIND_LABELS,generatedTitle,cleanText,stripSourceQuestionNumber,formatExamQuestionText,formatExamChoiceText,extractLetterStatements,isUsableExamQuestion,isNaturalStatement,naturalStatementReasons,isScenarioSourceQuestion,isMultiColumnTableSource,sourceTopic,contextualizeStatement,diceSimilarity,isNearDuplicateOneByOne,isNearDuplicateExam,sourceStatements,questionSemanticText};
 })();
 (function(){
   let rawDb=null, report=null, generated=null;
