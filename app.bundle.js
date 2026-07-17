@@ -83,14 +83,30 @@
     exam_am:{'第1章':20,'第2章':20,'第4章':20},
     exam_pm:{'第3章':40,'第5章':20}
   };
-  const HISTORY_KEY='touhan.engine.generator.history.v110';
+  const HISTORY_KEY='touhan.engine.generator.history.v120',LEARNING_KEY='touhan.engine.learning.state.v1';
 
   function hashSeed(text){let h=2166136261;for(const c of text){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0}
   function rng(seed){let a=seed>>>0;return()=>{a+=0x6D2B79F5;let t=a;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}}
   function shuffle(list,random){const a=[...list];for(let i=a.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
   function history(){try{return JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]')}catch{return[]}}
-  function recentIds(category,days=4){return new Set(history().filter(x=>x.category===category).slice(-days).flatMap(x=>x.questionIds||[]))}
-  function pick(pool,count,random,blocked,selected,selectedQuestions=[],duplicateGuard=null){const years={};for(const q of pool)(years[q.year]??=[]).push(q);Object.keys(years).forEach(y=>years[y]=shuffle(years[y],random));const ys=shuffle(Object.keys(years),random),out=[];let c=0,g=0;while(out.length<count&&ys.length&&g++<20000){const y=ys[c++%ys.length];let q;while(years[y].length&&!q){const x=years[y].shift();if(selected.has(x.question_id)||blocked.has(x.question_id))continue;if(duplicateGuard&&duplicateGuard(x,selectedQuestions))continue;q=x}if(q){out.push(q);selected.add(q.question_id);selectedQuestions.push(q)}if(ys.every(k=>years[k].length===0))break}return out}
+  function learningState(){try{return JSON.parse(localStorage.getItem(LEARNING_KEY)||'null')}catch{return null}}
+  function learningMap(){const s=learningState(),m=new Map();for(const q of (s?.questions||[]))if(q?.knowledgeId)m.set(String(q.knowledgeId),q);return m}
+  function generatedCounts(){const m=new Map();for(const row of history())for(const id of (row.questionIds||[]))m.set(String(id),(m.get(String(id))||0)+1);return m}
+  function recentIds(category,days=3){return new Set(history().filter(x=>x.category===category).slice(-days).flatMap(x=>x.questionIds||[]))}
+  function priorityScore(q,random,learn,generated){
+    const id=String(q.question_id),s=learn.get(id)||{},gen=generated.get(id)||0,shown=Math.max(Number(s.shownCount)||0,gen),wrong=Number(s.wrongCount)||0,uncertain=Number(s.uncertainCount)||0;
+    let tier=0;if(shown===0)tier=300000;else if(wrong>0||uncertain>0)tier=200000;else tier=100000;
+    let stale=0;if(s.lastAnsweredAt){const d=(Date.now()-Date.parse(s.lastAnsweredAt))/86400000;if(Number.isFinite(d))stale=Math.max(0,Math.min(365,d));}
+    return tier+wrong*1500+uncertain*1000+stale*10-shown*250+random()*80;
+  }
+  function pick(pool,count,random,blocked,selected,selectedQuestions=[],duplicateGuard=null,topicSet=null){
+    const learn=learningMap(),generated=generatedCounts(),years={};
+    for(const q of pool)(years[q.year]??=[]).push(q);
+    Object.keys(years).forEach(y=>years[y]=years[y].map(q=>({q,score:priorityScore(q,random,learn,generated)})).sort((a,b)=>b.score-a.score).map(x=>x.q));
+    const ys=shuffle(Object.keys(years),random),out=[];let c=0,g=0;
+    while(out.length<count&&ys.length&&g++<30000){const y=ys[c++%ys.length];let q;while(years[y].length&&!q){const x=years[y].shift();if(selected.has(x.question_id))continue;if(blocked.has(x.question_id)&&((learningMap().get(String(x.question_id))?.wrongCount||0)===0)&&((learningMap().get(String(x.question_id))?.uncertainCount||0)===0))continue;if(duplicateGuard&&duplicateGuard(x,selectedQuestions))continue;if(topicSet&&hasTopicConflict(x,topicSet))continue;q=x}if(q){out.push(q);selected.add(q.question_id);selectedQuestions.push(q);if(topicSet)addTopicKeys(q,topicSet)}if(ys.every(k=>years[k].length===0))break}
+    return out;
+  }
 
   function removeRubyLines(value){
     const lines=String(value??'').replace(/\r/g,'').split('\n').map(x=>x.trim());
@@ -543,6 +559,19 @@
     return naturalStatementReasons(text).length===0;
   }
 
+  const TOPIC_TERMS=['添付文書','咀嚼剤','医薬品PLセンター','副作用等報告','医薬品副作用被害救済制度','健康食品','特定保健用食品','機能性表示食品','配置販売業','店舗販売業','薬局','一般用検査薬','殺菌消毒成分'];
+  function normalizedTopicKey(v){return cleanText(v).normalize('NFKC').replace(/[\s　、。・（）()「」『』]/g,'').replace(/(?:に関する|について|の記述|次の記述)$/g,'')}
+  function topicKeys(q){
+    const text=`${q.source_context||''} ${q.statement||q.question_text||''}`,keys=new Set();
+    for(const term of TOPIC_TERMS)if(text.includes(term))keys.add(`term:${term}`);
+    for(const m of text.matchAll(/[一-龯ァ-ヶー]{2,14}(?:湯|散|丸|飲|膏)(?!剤)/g))keys.add(`kampo:${m[0]}`);
+    for(const m of text.matchAll(/[一-龯ァ-ヶー]{2,18}(?:塩酸塩|臭化物|硫酸塩|硝酸塩|マレイン酸塩|ナトリウム|カリウム|カルシウム|アクリノール|インドメタシン)/g))keys.add(`ingredient:${m[0]}`);
+    const ctx=normalizedTopicKey(q.source_context||'');if(ctx&&ctx.length>=3&&ctx.length<=32&&!/^(?:次|記述|正誤|組合せ)$/.test(ctx))keys.add(`context:${ctx}`);
+    return [...keys];
+  }
+  function hasTopicConflict(q,set){return topicKeys(q).some(k=>set.has(k))}
+  function addTopicKeys(q,set){topicKeys(q).forEach(k=>set.add(k))}
+
   function normalizeSimilarityText(value){
     return cleanText(value)
       .normalize('NFKC')
@@ -588,8 +617,8 @@
   function buildOneByOnePool(questions){return questions.flatMap(deriveOneByOne).filter(x=>isNaturalStatement(x.statement))}
   function toOneByOneQuestion(q,no){const answer=q.truth?'○':'×',short=conciseOneByOneExplanation(q.statement,q.truth);return {no,chapter:q.chapter,theme:`東京都${q.year}年度`,knowledge_id:q.question_id,source:`過去問（東京都${q.year}年度 問${q.question_no}）`,answer,text:cleanText(q.statement),shortExplanation:short,explanation:short,category:'one_by_one',category_label:'一問一答'}}
 
-  function pickByDistribution(pool,distribution,random,blocked,selected,selectedQuestions=[],duplicateGuard=null){const picked=[];for(const [chapter,count] of Object.entries(distribution))picked.push(...pick(pool.filter(q=>q.chapter===chapter),count,random,blocked,selected,selectedQuestions,duplicateGuard));return picked}
-  function makeSet({pool,distribution,count,id,title,note,random,blocked,selected,mapper,selectedQuestions=[],duplicateGuard=null}){let picked=pickByDistribution(pool,distribution,random,blocked,selected,selectedQuestions,duplicateGuard);if(picked.length<count){for(const q of shuffle(pool,random)){if(picked.length>=count)break;if(selected.has(q.question_id)||blocked.has(q.question_id))continue;if(duplicateGuard&&duplicateGuard(q,selectedQuestions))continue;picked.push(q);selected.add(q.question_id);selectedQuestions.push(q)}}if(picked.length<count)throw new Error(`${title}を${count}問確保できませんでした（類似問題除外後）`);return {id,title,note,questions:shuffle(picked,random).map((q,i)=>mapper(q,i+1))}}
+  function pickByDistribution(pool,distribution,random,blocked,selected,selectedQuestions=[],duplicateGuard=null,topicSet=null){const picked=[];for(const [chapter,count] of Object.entries(distribution))picked.push(...pick(pool.filter(q=>q.chapter===chapter),count,random,blocked,selected,selectedQuestions,duplicateGuard,topicSet));return picked}
+  function makeSet({pool,distribution,count,id,title,note,random,blocked,selected,mapper,selectedQuestions=[],duplicateGuard=null}){const topicSet=new Set();let picked=pickByDistribution(pool,distribution,random,blocked,selected,selectedQuestions,duplicateGuard,topicSet);if(picked.length<count){const learn=learningMap(),generated=generatedCounts();for(const q of [...pool].sort((a,b)=>priorityScore(b,random,learn,generated)-priorityScore(a,random,learn,generated))){if(picked.length>=count)break;if(selected.has(q.question_id))continue;if(blocked.has(q.question_id)&&!((learn.get(String(q.question_id))?.wrongCount||0)>0||(learn.get(String(q.question_id))?.uncertainCount||0)>0))continue;if(duplicateGuard&&duplicateGuard(q,selectedQuestions))continue;if(hasTopicConflict(q,topicSet))continue;picked.push(q);selected.add(q.question_id);selectedQuestions.push(q);addTopicKeys(q,topicSet)}}if(picked.length<count)throw new Error(`${title}を${count}問確保できませんでした（題材・類似問題除外後）`);return {id,title,note,questions:shuffle(picked,random).map((q,i)=>mapper(q,i+1))}}
   const KIND_LABELS={normal:'通常',practice:'練習',development:'開発'};
   function generatedTitle(date,kind,sequence=1){const d=date.replace(/-/g,'/'),n=Math.max(1,Number(sequence)||1);if(kind==='practice')return `${d}（練習${n===1?'':n}）`;if(kind==='development')return `${d}（開発${n===1?'':n}）`;return n===1?d:`${d}（${n}）`}
   function saveHistory(result,mode,kind){const ids=result.sets.flatMap(s=>s.questions.map(q=>q.knowledge_id));const rows=history();rows.push({dayId:result.id,date:result.date.replace(/\//g,'-'),resultTitle:result.title,category:result.category,mode,kind,questionIds:ids,createdAt:new Date().toISOString()});localStorage.setItem(HISTORY_KEY,JSON.stringify(rows.slice(-100)))}
@@ -612,10 +641,10 @@
       const back=makeSet({pool:examPool,distribution:DISTRIBUTIONS.exam_pm,count:60,id:`${dayId}-back`,title:'後半 60問',note:'第3章40・第5章20',random,blocked,selected,mapper:toExamQuestion,selectedQuestions,duplicateGuard:isNearDuplicateExam});
       result={id:dayId,title:actualTitle,date:date.replace(/-/g,'/'),category:'exam_style',category_label:'本番形式120問',mode:'exam_style',kind,sets:[front,back]};
     }
-    result.schemaVersion="2.0";result.embeddedAnswerData=true;result.generation_kind=kind;result.generation_kind_label=KIND_LABELS[kind]||kind;result.generation_sequence=Math.max(1,Number(sequence)||1);result.generated_at=new Date().toISOString();saveHistory(result,mode,kind);return result;
+    result.schemaVersion="2.0";result.embeddedAnswerData=true;result.generation_kind=kind;result.generation_kind_label=KIND_LABELS[kind]||kind;result.generation_sequence=Math.max(1,Number(sequence)||1);result.generated_at=new Date().toISOString();const lm=learningMap(),gc=generatedCounts(),allIds=result.sets.flatMap(s=>s.questions.map(q=>String(q.knowledge_id||"")));result.selectionPolicy={priority:"unseen > wrong_or_uncertain > seen",unseenSelected:allIds.filter(id=>Math.max(Number(lm.get(id)?.shownCount)||0,gc.get(id)||0)===0).length,reviewSelected:allIds.filter(id=>(lm.get(id)?.wrongCount||0)>0||(lm.get(id)?.uncertainCount||0)>0).length,topicDuplicateLimit:"same topic once per set"};saveHistory(result,mode,kind);return result;
   }
 
-  window.TouhanGenerator={generate,buildOneByOnePool,DISTRIBUTIONS,HISTORY_KEY,KIND_LABELS,generatedTitle,cleanText,stripSourceQuestionNumber,formatExamQuestionText,formatExamChoiceText,extractLetterStatements,isUsableExamQuestion,isNaturalStatement,naturalStatementReasons,isScenarioSourceQuestion,isMultiColumnTableSource,sourceTopic,contextualizeStatement,diceSimilarity,isNearDuplicateOneByOne,isNearDuplicateExam,sourceStatements,questionSemanticText};
+  window.TouhanGenerator={generate,buildOneByOnePool,DISTRIBUTIONS,HISTORY_KEY,LEARNING_KEY,KIND_LABELS,generatedTitle,cleanText,stripSourceQuestionNumber,formatExamQuestionText,formatExamChoiceText,extractLetterStatements,isUsableExamQuestion,isNaturalStatement,naturalStatementReasons,isScenarioSourceQuestion,isMultiColumnTableSource,sourceTopic,contextualizeStatement,diceSimilarity,isNearDuplicateOneByOne,isNearDuplicateExam,sourceStatements,questionSemanticText};
 })();
 (function(){
   let rawDb=null, report=null, generated=null;
@@ -638,11 +667,18 @@
     $('generatedJson').value=JSON.stringify(data,null,2);
   }
   function download(name,obj){const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u)}
+  function renderLearningStatus(){const e=$('learningStatus');if(!e)return;let s=null;try{s=JSON.parse(localStorage.getItem(TouhanGenerator.LEARNING_KEY)||'null')}catch{}const h=(()=>{try{return JSON.parse(localStorage.getItem(TouhanGenerator.HISTORY_KEY)||'[]')}catch{return[]}})();if(!s){e.textContent=`学習状況未読込｜生成履歴 ${h.length}回`;e.className='status-box';return;}const qs=s.questions||[],wrong=qs.filter(x=>(x.wrongCount||0)>0).length,uncertain=qs.filter(x=>(x.uncertainCount||0)>0).length;e.textContent=`学習記録 ${qs.length}問｜誤答あり ${wrong}問｜迷った ${uncertain}問｜生成履歴 ${h.length}回`;e.className='status-box ok'}
+  async function importLearningFile(file){const o=JSON.parse(await file.text());if(o?.type!=='touhan_learning_state'||!Array.isArray(o.questions))throw new Error('学習状況JSONではありません');localStorage.setItem(TouhanGenerator.LEARNING_KEY,JSON.stringify(o));renderLearningStatus();setStatus(`学習状況を読み込みました：${o.questions.length}問`,'ok')}
+
   document.addEventListener('DOMContentLoaded',()=>{
     $('genDate').value=today();syncMeta();$('genDate').addEventListener('change',syncMeta);$('genRound').addEventListener('input',syncMeta);$('genMode').addEventListener('change',syncMeta);$('genKind').addEventListener('change',syncMeta);
     $('loadDbBtn').onclick=()=>loadBundled().catch(e=>setStatus(e.message,'err'));
     $('validateDbBtn').onclick=()=>validate().catch(e=>setStatus(e.message,'err'));
     $('masterFile').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;rawDb=JSON.parse(await f.text());report=null;setStatus(`ローカルDB読込完了：${rawDb.questions?.length||0}問`,'ok')}catch(err){setStatus(`読込失敗：${err.message}`,'err')}};
+    $('learningFile').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;await importLearningFile(f)}catch(err){setStatus(`学習状況読込失敗：${err.message}`,'err')}};
+    $('clearLearningBtn').onclick=()=>{localStorage.removeItem(TouhanGenerator.LEARNING_KEY);renderLearningStatus();setStatus('学習状況を解除しました','ok')};
+    $('clearGenerationHistoryBtn').onclick=()=>{if(confirm('生成履歴をリセットしますか？')){localStorage.removeItem(TouhanGenerator.HISTORY_KEY);renderLearningStatus();setStatus('生成履歴をリセットしました','ok')}};
+    renderLearningStatus();
     $('generateDailyBtn').onclick=async()=>{try{if(!report)await validate();const mode=$('genMode').value;generated=TouhanGenerator.generate({questions:report.valid,date:$('genDate').value,dayId:$('genDayId').value.trim(),title:$('genTitle').value.trim(),mode,kind:$('genKind').value,sequence:Number($('genRound').value)||1});renderGenerated(generated);setStatus(`${mode==='one_by_one'?'一問一答':mode==='practice60'?'総合演習':'本番問題'}を生成しました。統合JSONを学習アプリへ取り込めます。`,'ok')}catch(e){setStatus(`生成失敗：${e.message}`,'err')}};
     $('downloadDailyBtn').onclick=()=>generated?download(`${generated.id}_all_sets.json`,generated):setStatus('先に問題を生成してください','err');
     $('downloadSetsBtn').onclick=()=>{if(!generated)return setStatus('先に問題を生成してください','err');generated.sets.forEach(set=>download(`${set.id}.json`,{...generated,sets:[set]}))};
