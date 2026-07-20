@@ -1,6 +1,6 @@
 {
   "schema_version": "2.1",
-  "manager_version": "1.2.2",
+  "manager_version": "1.2.3",
   "generated_at": "2026-07-18T17:53:59.495118+00:00",
   "source_files": [
     {
@@ -30578,9 +30578,21 @@
       "_import_file": "tokyo_2025_v4.json"
     }
   ],
-  "manual_corrections": {
-    "version": "1.2.1",
-    "count": 15,
-    "source": "official PDF images supplied by user"
-  }
+  "manual_corrections": [
+    {
+      "version": "1.2.1",
+      "count": 15,
+      "source": "official PDF images supplied by user"
+    },
+    {
+      "version": "1.2.3",
+      "count": 2,
+      "source": "official images supplied by user",
+      "items": [
+        "tokyo_2021_093_b context supplementation",
+        "tokyo_2024_090_choice_2 context supplementation"
+      ],
+      "note": "一問一答生成時に主語を補完。短い解説の無内容な誤りテンプレートを廃止。"
+    }
+  ]
 }

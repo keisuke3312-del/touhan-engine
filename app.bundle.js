@@ -316,9 +316,25 @@
     if(/^必ず/.test(t))return '「必ず」と一律に断定できません。条件や例外があります。';
     if(/(?:すべて|全て|一律)/.test(t))return 'すべてに一律に当てはまるわけではなく、条件や例外があります。';
 
-    // 最低でも問題固有の誤り箇所を表示し、無内容な定型文にはしない。
-    const claim=t.replace(/[。！？]+$/,'');
-    return `「${claim}」という内容は誤りです。正しい知識は詳しい解説で補完してください。`;
+    // 正しい内容を安全に自動復元できない場合、無内容な『誤りです』は表示しない。
+    return '詳しい解説を参照してください。';
+  }
+
+  function detailedOneByOneExplanation(statement,truth,short){
+    const t=cleanText(statement);
+    if(truth)return short;
+    if(short&&short!=='詳しい解説を参照してください。')return short;
+
+    const patterns=[
+      {re:/(.+)必要はない。?$/, build:m=>`誤っているのは「${m[1]}必要はない」としている点です。正しくは注意又は対応が必要です。`},
+      {re:/(.+)ことはない。?$/, build:m=>`誤っているのは「${m[1]}ことはない」と断定している点です。実際には生じる場合があります。`},
+      {re:/(.+)のみである。?$/, build:m=>`誤っているのは「${m[1]}のみ」と限定している点です。対象はそれだけに限られません。`},
+      {re:/(.+)はない。?$/, build:m=>`誤っているのは「${m[1]}はない」と断定している点です。例外なく否定できる内容ではありません。`},
+      {re:/(.+)できない。?$/, build:m=>`誤っているのは「${m[1]}できない」と断定している点です。条件によっては可能です。`},
+      {re:/(.+)必ず(.+)。?$/, build:m=>`誤っているのは「必ず${m[2]}」と一律に断定している点です。条件や例外があります。`}
+    ];
+    for(const p of patterns){const m=t.match(p.re);if(m)return p.build(m);}
+    return '誤り箇所の個別解説は未登録です。元の設問と正答を確認してください。';
   }
   function makeExamShortExplanation(q){
     const i=Number(q.answer)-1;
@@ -461,6 +477,17 @@
     const topic=sourceTopic(q);
     if(!topic)return s;
     if(s.startsWith(topic)||s.includes(`${topic}は`)||s.includes(`${topic}では`)||s.includes(`${topic}について`))return s;
+
+    // 選択肢だけでは対象薬・成分が分からない場合は、設問の主題を補う。
+    const explicitTopicRequired=/(?:及びその配合成分|配合される.+の作用|の作用|使用上の注意|適正使用|副作用|効能効果)/.test(topic);
+    const topicHead=topic
+      .replace(/及びその配合成分.*$/,'')
+      .replace(/に配合される(.+?)の作用.*$/,'$1')
+      .replace(/の作用.*$/,'')
+      .trim();
+    const alreadyHasHead=topicHead.length>=3&&s.includes(topicHead);
+    if(explicitTopicRequired&&!alreadyHasHead)return `${topic}について、${s}`;
+
     if(statementNeedsContext(s)||(sourceRequiresTopic(q)&&!hasExplicitInstitutionalSubject(s)))return `${topic}について、${s}`;
     return s;
   }
@@ -615,7 +642,12 @@
     return false;
   }
   function buildOneByOnePool(questions){return questions.flatMap(deriveOneByOne).filter(x=>isNaturalStatement(x.statement))}
-  function toOneByOneQuestion(q,no){const answer=q.truth?'○':'×',short=conciseOneByOneExplanation(q.statement,q.truth);return {no,chapter:q.chapter,theme:`東京都${q.year}年度`,knowledge_id:q.question_id,source:`過去問（東京都${q.year}年度 問${q.question_no}）`,answer,text:cleanText(q.statement),shortExplanation:short,explanation:short,category:'one_by_one',category_label:'一問一答'}}
+  function toOneByOneQuestion(q,no){
+    const answer=q.truth?'○':'×';
+    const short=conciseOneByOneExplanation(q.statement,q.truth);
+    const detailed=detailedOneByOneExplanation(q.statement,q.truth,short);
+    return {no,chapter:q.chapter,theme:`東京都${q.year}年度`,knowledge_id:q.question_id,source:`過去問（東京都${q.year}年度 問${q.question_no}）`,answer,text:cleanText(q.statement),shortExplanation:short,explanation:detailed,category:'one_by_one',category_label:'一問一答'};
+  }
 
   function pickByDistribution(pool,distribution,random,blocked,selected,selectedQuestions=[],duplicateGuard=null,topicSet=null){const picked=[];for(const [chapter,count] of Object.entries(distribution))picked.push(...pick(pool.filter(q=>q.chapter===chapter),count,random,blocked,selected,selectedQuestions,duplicateGuard,topicSet));return picked}
   function makeSet({pool,distribution,count,id,title,note,random,blocked,selected,mapper,selectedQuestions=[],duplicateGuard=null}){const topicSet=new Set();let picked=pickByDistribution(pool,distribution,random,blocked,selected,selectedQuestions,duplicateGuard,topicSet);if(picked.length<count){const learn=learningMap(),generated=generatedCounts();for(const q of [...pool].sort((a,b)=>priorityScore(b,random,learn,generated)-priorityScore(a,random,learn,generated))){if(picked.length>=count)break;if(selected.has(q.question_id))continue;if(blocked.has(q.question_id)&&!((learn.get(String(q.question_id))?.wrongCount||0)>0||(learn.get(String(q.question_id))?.uncertainCount||0)>0))continue;if(duplicateGuard&&duplicateGuard(q,selectedQuestions))continue;if(hasTopicConflict(q,topicSet))continue;picked.push(q);selected.add(q.question_id);selectedQuestions.push(q);addTopicKeys(q,topicSet)}}if(picked.length<count)throw new Error(`${title}を${count}問確保できませんでした（題材・類似問題除外後）`);return {id,title,note,questions:shuffle(picked,random).map((q,i)=>mapper(q,i+1))}}
